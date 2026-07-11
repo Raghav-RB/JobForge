@@ -70,3 +70,100 @@ Build both:
 
 **Reason:**
 Comparing both implementations makes it easier to understand the practical difference between synchronous request processing and asynchronous job processing.
+
+# Day 2 – Redis Lists Integration
+
+## Decision 1: Replace the in-memory queue with Redis
+
+### Problem
+
+The JavaScript array used on Day 1 lived inside the Node.js process.
+
+This caused several limitations:
+
+- Jobs were lost when the server restarted.
+- Multiple application instances could not share the queue.
+- Only the current Node.js process could access the data.
+
+### Decision
+
+Replace the in-memory array with a Redis List.
+
+### Reason
+
+Redis stores the queue outside the application process, allowing:
+
+- Persistence across server restarts.
+- A shared queue for multiple servers.
+- Communication between different processes and programming languages.
+
+---
+
+## Decision 2: Store jobs as JSON strings
+
+### Problem
+
+Redis Lists cannot directly store JavaScript objects.
+
+### Decision
+
+Serialize every job using `JSON.stringify()` before storing it and reconstruct it using `JSON.parse()` after reading.
+
+### Reason
+
+JSON provides a portable and language-independent format that can be understood by any Redis client.
+
+---
+
+## Decision 3: Use RPUSH for inserting jobs
+
+### Decision
+
+New jobs are inserted using `RPUSH`.
+
+### Reason
+
+Jobs are added to the tail of the queue, preserving the order in which they are received.
+
+---
+
+## Decision 4: Read jobs using LRANGE
+
+### Decision
+
+Use `LRANGE jobs 0 -1` to retrieve all jobs.
+
+### Reason
+
+This allows inspection of the complete queue without removing any jobs, making it useful for debugging and status APIs.
+
+---
+
+## Decision 5: Prefer BRPOP over polling
+
+### Problem
+
+Using `LPOP` continuously requires workers to repeatedly query Redis even when the queue is empty.
+
+### Decision
+
+Workers will use `BRPOP` instead of repeatedly calling `LPOP`.
+
+### Reason
+
+`BRPOP` blocks until a job becomes available, eliminating unnecessary requests, reducing CPU usage, and providing a more efficient event-driven architecture.
+
+---
+
+## Decision 6: Preserve the naive implementation
+
+### Decision
+
+Keep both implementations in the project:
+
+- `jobs.memory.controller.js`
+- `jobs.redis.controller.js`
+
+### Reason
+
+Maintaining both versions documents the architectural evolution of the project, making it easier to compare approaches and explain design decisions during interviews.

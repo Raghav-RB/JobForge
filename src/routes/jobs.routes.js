@@ -2,11 +2,17 @@ const express = require("express");
 
 const router = express.Router();
 
-const { 
+// const { 
+//     createJob,
+//     getJobs,
+//     createJobSync
+//      } = require("../controllers/jobs.memory.controller");
+
+const {
     createJob,
     getJobs,
-    createJobSync
-     } = require("../controllers/jobs.controller");
+    createJobSync,
+} = require("../controllers/jobs.redis.controller");
 
 router.post("/jobs", createJob);
 
