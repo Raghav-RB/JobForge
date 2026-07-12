@@ -167,3 +167,75 @@ Keep both implementations in the project:
 ### Reason
 
 Maintaining both versions documents the architectural evolution of the project, making it easier to compare approaches and explain design decisions during interviews.
+
+# Day 3 – Worker Process and Concurrency
+
+## Decision 1: Separate Producer and Consumer
+
+### Decision
+
+The Express application acts as the Producer, while a dedicated worker process acts as the Consumer.
+
+### Reason
+
+Separating responsibilities allows the API to respond immediately while background jobs are processed independently.
+
+---
+
+## Decision 2: Use a Dedicated Worker Process
+
+### Decision
+
+Implement job processing in `worker.js` instead of inside the Express server.
+
+### Reason
+
+Workers can be started, stopped, restarted, and scaled independently without affecting the API server.
+
+---
+
+## Decision 3: Use BRPOP Inside an Infinite Loop
+
+### Decision
+
+The worker continuously waits for new jobs using:
+
+```javascript
+while (true) {
+    await redis.brpop("jobs", 0);
+}
+```
+
+### Reason
+
+`BRPOP` blocks until a job is available, eliminating unnecessary polling while allowing the worker to process jobs continuously.
+
+---
+
+## Decision 4: Run Multiple Worker Processes
+
+### Decision
+
+Allow multiple instances of `worker.js` to consume jobs from the same Redis queue.
+
+### Reason
+
+Redis atomically assigns each job to a single waiting worker, enabling concurrent job processing without duplicate execution.
+
+---
+
+## Decision 5: Accept the Lost Job Limitation
+
+### Problem
+
+A job is removed from Redis immediately after `BRPOP`.
+
+If a worker crashes before completing the job, the job is permanently lost.
+
+### Decision
+
+Do not solve this limitation yet.
+
+### Reason
+
+Understanding this failure mode is essential before introducing retries, acknowledgements, and reliable queues in later stages of the project.
