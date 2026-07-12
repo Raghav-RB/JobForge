@@ -239,3 +239,95 @@ Do not solve this limitation yet.
 ### Reason
 
 Understanding this failure mode is essential before introducing retries, acknowledgements, and reliable queues in later stages of the project.
+
+# Day 4 – Retry Mechanism and Failure Handling
+
+## Decision 1: Handle job failures using try-catch
+
+### Problem
+
+A single exception during job processing caused the entire worker process to crash.
+
+### Decision
+
+Wrap the processing logic of each individual job inside a `try...catch` block.
+
+### Reason
+
+A failed job should not stop the worker from processing future jobs. Handling exceptions per job keeps the worker running continuously.
+
+---
+
+## Decision 2: Track retry count inside the job object
+
+### Problem
+
+The worker needs to know how many retry attempts have already been made.
+
+### Decision
+
+Add a `retries` field to every job.
+
+### Reason
+
+Storing retry information with the job allows any worker to continue processing it correctly, even if another worker originally handled previous attempts.
+
+---
+
+## Decision 3: Automatically retry failed jobs
+
+### Decision
+
+If processing fails, increment the retry count and push the job back into the Redis queue.
+
+### Reason
+
+Many failures are temporary (network issues, database timeouts, third-party service outages). Automatic retries improve the likelihood of successful processing without user intervention.
+
+---
+
+## Decision 4: Limit retry attempts
+
+### Problem
+
+Retrying forever creates infinite retry loops and wastes system resources.
+
+### Decision
+
+Introduce a configurable `MAX_RETRIES` limit.
+
+### Reason
+
+After a reasonable number of attempts, the job is considered permanently failed and should no longer consume worker resources.
+
+---
+
+## Decision 5: Accept immediate retries temporarily
+
+### Problem
+
+Immediately retrying failed jobs can create retry storms and repeatedly hit unavailable services.
+
+### Decision
+
+Keep immediate retries for now.
+
+### Reason
+
+The current objective is to understand retry mechanics. Delayed retries and exponential backoff will be implemented later using Redis Sorted Sets.
+
+---
+
+## Decision 6: Discard permanently failed jobs temporarily
+
+### Problem
+
+Jobs exceeding the retry limit are currently removed permanently.
+
+### Decision
+
+Accept this limitation for Day 4.
+
+### Reason
+
+The next architectural improvement is introducing a Dead Letter Queue (DLQ), where permanently failed jobs will be stored for inspection instead of being discarded.

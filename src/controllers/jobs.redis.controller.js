@@ -8,9 +8,11 @@ function delay(ms){
 
 async function createJob(req, res) {
     const job = {
-        id: Date.now(),
-        ...req.body,
-    };
+    id: Date.now(),
+    ...req.body,
+    createdAt: new Date().toISOString(),
+    retries: 0,
+};
 
     await redisClient.rpush("jobs", JSON.stringify(job));
 
