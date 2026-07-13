@@ -30,6 +30,14 @@ async function getJobs(req, res) {
     res.status(200).json(parsedJobs);
 }
 
+async function getFailedJobs(req, res) {
+    const jobs = await redisClient.lrange("failed_jobs", 0, -1);
+
+    const parsedJobs = jobs.map((job) => JSON.parse(job));
+
+    res.status(200).json(parsedJobs);
+}
+
 async function createJobSync(req, res) {
 
     await delay(5000);
@@ -43,5 +51,6 @@ async function createJobSync(req, res) {
 module.exports = {
     createJob,
     getJobs,
+    getFailedJobs,
     createJobSync,
 };

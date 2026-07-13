@@ -331,3 +331,83 @@ Accept this limitation for Day 4.
 ### Reason
 
 The next architectural improvement is introducing a Dead Letter Queue (DLQ), where permanently failed jobs will be stored for inspection instead of being discarded.
+
+# Day 5 – Dead Letter Queue (DLQ)
+
+## Decision 1: Preserve permanently failed jobs
+
+### Problem
+
+Previously, jobs exceeding the retry limit were discarded permanently.
+
+This made debugging impossible because all information about the failed job was lost.
+
+### Decision
+
+Move permanently failed jobs into a separate Dead Letter Queue.
+
+### Reason
+
+Keeping failed jobs allows engineers to inspect failures, identify root causes, and decide whether a job should be retried or discarded.
+
+---
+
+## Decision 2: Implement the Dead Letter Queue as a Redis List
+
+### Decision
+
+Create a second Redis List named:
+
+failed_jobs
+
+### Reason
+
+A Dead Letter Queue is simply another queue with a different purpose.
+
+Using another Redis List keeps the implementation simple while reusing the same Redis operations already used for the main queue.
+
+---
+
+## Decision 3: Move jobs using RPUSH
+
+### Decision
+
+When a job exceeds the retry limit, insert it into the Dead Letter Queue using:
+
+RPUSH failed_jobs
+
+### Reason
+
+This preserves the order in which jobs permanently failed and maintains FIFO ordering inside the DLQ.
+
+---
+
+## Decision 4: Expose the Dead Letter Queue through an API
+
+### Decision
+
+Create:
+
+GET /failed-jobs
+
+### Reason
+
+Operators should be able to inspect failed jobs without connecting directly to Redis.
+
+Providing an API also keeps debugging consistent with the existing GET /jobs endpoint.
+
+---
+
+## Decision 5: Keep the DLQ read-only
+
+### Problem
+
+Once a job reaches the Dead Letter Queue, there is currently no way to retry or delete an individual job.
+
+### Decision
+
+Accept this limitation for now.
+
+### Reason
+
+Today's objective is to understand why a Dead Letter Queue exists. Manual replay and deletion require additional queue management operations and are intentionally left out to keep the project focused.

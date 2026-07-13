@@ -22,12 +22,12 @@ async function startWorker() {
 
         } catch (error) {
 
-            job.retries++;
-
             console.log(`Job ${job.id} failed.`);
             console.log("Retry Count:", job.retries);
 
-            if (job.retries <= MAX_RETRIES) {
+            if (job.retries < MAX_RETRIES) {
+
+                job.retries++;
 
                 await redis.rpush("jobs", JSON.stringify(job));
 
@@ -35,7 +35,10 @@ async function startWorker() {
                 
             } else {
 
-                console.log(`Job ${job.id} permanently failed after ${job.retries} retries.`);
+                await redis.rpush("failed_jobs", JSON.stringify(job));
+                
+                console.log(`Job ${job.id} exceeded max retries (${MAX_RETRIES}). Moved to Dead Letter Queue.`);
+                // console.log(`Job ${job.id} permanently failed after ${job.retries} retries.`);
             }
         }
     }
