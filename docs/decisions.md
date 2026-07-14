@@ -533,3 +533,92 @@ Do not implement simplified idempotency.
 ### Reason
 
 Understanding the trade-offs is more valuable than adding an implementation that is known to be unsafe. Production systems usually implement idempotency together with business-level guarantees, acknowledgements, or transactional storage.
+
+# Day 7 – Automated Testing with Jest & Supertest
+
+## Goal
+
+Add automated integration testing to JobForge to verify API behavior without relying on manual Postman testing.
+
+---
+
+## Decisions Taken
+
+### 1. Chose Integration Testing over Unit Testing
+
+Instead of testing individual functions, the project focuses on integration testing because the primary objective is verifying the interaction between Express, Controllers, and Redis.
+
+Flow:
+
+Client
+↓
+Express
+↓
+Controller
+↓
+Redis
+↓
+Response
+
+This provides greater confidence that the application works correctly as a whole.
+
+---
+
+### 2. Used Supertest
+
+Instead of sending requests through Postman, Supertest was used to simulate HTTP requests directly against the Express application.
+
+Benefits:
+
+- Faster execution
+- Repeatable tests
+- No browser or Postman required
+- Easily integrated with Jest
+
+---
+
+### 3. Test Isolation using beforeEach()
+
+Redis queues are cleared before every test.
+
+Reason:
+
+Each test should be independent.
+
+Without cleanup, data from previous tests could affect later test results, making tests unreliable.
+
+---
+
+### 4. Verified Side Effects
+
+The POST /jobs test verifies both:
+
+- HTTP response
+- Data actually stored in Redis
+
+Reason:
+
+A successful response alone does not guarantee the queue was updated correctly.
+
+---
+
+### 5. Seeded Dead Letter Queue Directly
+
+The GET /failed-jobs endpoint is tested by inserting sample data directly into the failed_jobs queue.
+
+Reason:
+
+Creating failed jobs naturally requires worker execution and retry exhaustion, which is beyond the scope of API integration tests.
+
+---
+
+## Outcome
+
+Added automated integration tests covering:
+
+- GET /
+- POST /jobs
+- GET /jobs
+- GET /failed-jobs
+
+The project now includes automated verification of its primary REST APIs.
