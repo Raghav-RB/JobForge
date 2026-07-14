@@ -5,7 +5,8 @@
   "scripts": {
   "dev": "nodemon src/server.js",
   "start": "node src/server.js",
-  "worker": "node src/workers/worker.js"
+  "worker": "node src/workers/worker.js",
+  "scheduler": "node src/workers/scheduler.js"
 },
   "keywords": [],
   "author": "",

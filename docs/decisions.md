@@ -411,3 +411,125 @@ Accept this limitation for now.
 ### Reason
 
 Today's objective is to understand why a Dead Letter Queue exists. Manual replay and deletion require additional queue management operations and are intentionally left out to keep the project focused.
+
+# Day 6 – Delayed Jobs and Idempotency
+
+## Decision 1: Delay retries instead of retrying immediately
+
+### Problem
+
+Immediately retrying failed jobs can create retry storms by repeatedly sending requests to already unhealthy services.
+
+### Decision
+
+Move failed jobs into a delayed queue instead of immediately requeueing them.
+
+### Reason
+
+Delaying retries gives external systems time to recover and increases the likelihood that subsequent attempts will succeed while reducing unnecessary load.
+
+---
+
+## Decision 2: Use a Redis Sorted Set for delayed jobs
+
+### Problem
+
+A Redis List preserves insertion order but has no notion of time.
+
+### Decision
+
+Store delayed jobs inside a Redis Sorted Set named:
+
+delayed_jobs
+
+using the retry timestamp as the score.
+
+### Reason
+
+Redis automatically maintains jobs sorted by retry time, allowing the scheduler to efficiently retrieve only the jobs whose retry time has arrived.
+
+---
+
+## Decision 3: Store the retry timestamp as the score
+
+### Decision
+
+Use:
+
+retryAt = Date.now() + RETRY_DELAY
+
+as the ZSET score.
+
+### Reason
+
+The scheduler only needs to retrieve jobs whose retry time is less than or equal to the current time. Using retryAt as the score naturally supports time-based scheduling.
+
+---
+
+## Decision 4: Introduce a dedicated scheduler process
+
+### Problem
+
+Having every worker check delayed jobs wastes resources and violates the Single Responsibility Principle.
+
+### Decision
+
+Create a separate scheduler process responsible for moving ready jobs from the delayed queue back to the main queue.
+
+### Reason
+
+Separating scheduling from job processing keeps workers focused on processing jobs while allowing the scheduler to manage retry timing independently.
+
+---
+
+## Decision 5: Poll the delayed queue every second
+
+### Decision
+
+The scheduler checks the delayed queue once every second using:
+
+ZRANGEBYSCORE delayed_jobs -inf currentTime
+
+### Reason
+
+A one-second polling interval is simple to implement and sufficient for this learning project while demonstrating delayed job scheduling.
+
+---
+
+## Decision 6: Accept the non-atomic scheduler limitation
+
+### Problem
+
+Moving a job back to the main queue currently requires two separate Redis operations:
+
+RPUSH jobs
+
+followed by
+
+ZREM delayed_jobs
+
+If the scheduler crashes between these operations, the same job may exist in both queues and later be processed twice.
+
+### Decision
+
+Accept this limitation for the learning project.
+
+### Reason
+
+The goal is to understand delayed scheduling rather than implement a fully fault-tolerant scheduler. Production systems typically solve this using acknowledgements, atomic operations, or transactional mechanisms.
+
+---
+
+## Decision 7: Discuss idempotency conceptually instead of implementing a naive solution
+
+### Problem
+
+A simple SET ... NX approach introduces another failure window. Marking a job as processed before the business operation completes can permanently lose work if the worker crashes.
+
+### Decision
+
+Do not implement simplified idempotency.
+
+### Reason
+
+Understanding the trade-offs is more valuable than adding an implementation that is known to be unsafe. Production systems usually implement idempotency together with business-level guarantees, acknowledgements, or transactional storage.

@@ -1,6 +1,7 @@
 const redis = require("../redis/redis");
 
 const MAX_RETRIES = 3;
+const BACKOFF = 10000;
 
 async function startWorker() {
     while (true) {
@@ -29,16 +30,17 @@ async function startWorker() {
 
                 job.retries++;
 
-                await redis.rpush("jobs", JSON.stringify(job));
+                const retryAt = Date.now() + BACKOFF;
 
-                console.log(`Retrying Job ${job.id} (${job.retries}/${MAX_RETRIES})`);
+                await redis.zadd("delayed_jobs", retryAt , JSON.stringify(job));
+
+                console.log(`Job ${job.id} scheduled for retry at ${new Date(retryAt).toLocaleTimeString()}`);
                 
             } else {
 
                 await redis.rpush("failed_jobs", JSON.stringify(job));
                 
                 console.log(`Job ${job.id} exceeded max retries (${MAX_RETRIES}). Moved to Dead Letter Queue.`);
-                // console.log(`Job ${job.id} permanently failed after ${job.retries} retries.`);
             }
         }
     }
