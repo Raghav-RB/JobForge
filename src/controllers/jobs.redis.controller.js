@@ -1,18 +1,18 @@
 const redisClient = require("../redis/redis");
 
-function delay(ms){
-    return new Promise((resolve)=>{
-        setTimeout(resolve , ms);
+function delay(ms) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms);
     });
 }
 
 async function createJob(req, res) {
     const job = {
-    id: Date.now(),
-    ...req.body,
-    createdAt: new Date().toISOString(),
-    retries: 0,
-};
+        id: Date.now(),
+        ...req.body,
+        createdAt: new Date().toISOString(),
+        retries: 0,
+    };
 
     await redisClient.rpush("jobs", JSON.stringify(job));
 
@@ -39,13 +39,11 @@ async function getFailedJobs(req, res) {
 }
 
 async function createJobSync(req, res) {
-
     await delay(5000);
 
     res.status(200).json({
-        message: "Synchronous job completed"
+        message: "Synchronous job completed",
     });
-
 }
 
 module.exports = {

@@ -5,6 +5,11 @@ const app = require("../src/app");
 beforeEach(async () => {
     await redis.del("jobs");
     await redis.del("failed_jobs");
+    await redis.del("delayed_jobs");
+});
+
+afterAll(async () => {
+    await redis.quit();
 });
 
 test("GET / should return 404", async () => {
@@ -21,21 +26,16 @@ test("POST /jobs should create a new job", async () => {
         });
 
     expect(response.statusCode).toBe(201);
+    expect(response.body.message).toBe("Job created successfully");
 
-    const jobs = await redis.lrange("jobs", 0, -1);
-
-    expect(jobs.length).toBe(1);
-
-    const job = JSON.parse(jobs[0]);
-
-    expect(job.title).toBe("Learn Jest");
-    expect(job.retries).toBe(0);
-    expect(job.id).toBeDefined();
-    expect(job.createdAt).toBeDefined();
+    expect(response.body.job).toBeDefined();
+    expect(response.body.job.title).toBe("Learn Jest");
+    expect(response.body.job.retries).toBe(0);
+    expect(response.body.job.id).toBeDefined();
+    expect(response.body.job.createdAt).toBeDefined();
 });
 
 test("GET /jobs should return all jobs", async () => {
-
     await request(app)
         .post("/jobs")
         .send({
@@ -46,11 +46,14 @@ test("GET /jobs should return all jobs", async () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body.length).toBe(1);
+
     expect(response.body[0].title).toBe("First Job");
+    expect(response.body[0].retries).toBe(0);
+    expect(response.body[0].id).toBeDefined();
+    expect(response.body[0].createdAt).toBeDefined();
 });
 
-test("GET /failed-jobs should return failed jobs", async () => {
-
+test("GET /failed_jobs should return failed jobs", async () => {
     await redis.rpush(
         "failed_jobs",
         JSON.stringify({
@@ -60,10 +63,11 @@ test("GET /failed-jobs should return failed jobs", async () => {
         })
     );
 
-    const response = await request(app).get("/failed-jobs");
+    const response = await request(app).get("/failed_jobs");
 
     expect(response.statusCode).toBe(200);
     expect(response.body.length).toBe(1);
+
     expect(response.body[0].title).toBe("Failed Job");
     expect(response.body[0].retries).toBe(3);
 });
