@@ -192,13 +192,6 @@ http://localhost:3000
 
 ## API Reference
 
-| Method | Endpoint | Description |
-|--------|----------|--------------|
-| POST | `/jobs` | Create a background job |
-| GET | `/jobs` | List jobs waiting in the main queue |
-| GET | `/failed_jobs` | List jobs in the Dead Letter Queue |
-| POST | `/jobs_sync` | Processes synchronously, for comparison against `/jobs` |
-
 | Method | Endpoint     | Description                                                | Success |
 | ------ | ------------ | ---------------                                            | ------- |
 | POST   | /jobs        | Create a background job                                    | 201     |
@@ -287,34 +280,59 @@ npm test
 
 ---
 
-## Screenshots
+## 📸 Screenshots
 
-### Setup
+### Development Environment
 
-![Project Structure](images/project-structure.png)
-![Running Services](images/running-services.png)
+| Project Structure | Running Services |
+|-------------------|------------------|
+| ![Project Structure](assets/project-structure.png) | ![Running Services](assets/running-services.png) |
 
-### API
+---
 
-![Create Job](images/post-job.png)
-![List Jobs](images/get-jobs.png)
-![Dead Letter Queue](images/get-failed-jobs.png)
+### API Endpoints
 
-### Redis Inspection
+| Create Job | List Jobs |
+|------------|-----------|
+| ![Create Job](assets/create-job.png) | ![List Jobs](assets/list-jobs.png) |
 
-```text
-LRANGE jobs 0 -1                     # main queue
-ZRANGE delayed_jobs 0 -1 WITHSCORES  # delayed queue
-LRANGE failed_jobs 0 -1              # dead letter queue
+### Dead Letter Queue
+
+![Failed Jobs](assets/failed-jobs.png)
+
+---
+
+### Redis Data Structures
+
+#### Main Queue (Redis List)
+
+```bash
+LRANGE jobs 0 -1
 ```
 
-![Main Queue](images/redis-jobs.png)
-![Delayed Queue](images/redis-delayed.png)
-![Dead Letter Queue](images/redis-failed.png)
+![Main Queue](assets/redis-main-queue.png)
 
-### Tests
+#### Delayed Queue (Redis Sorted Set)
 
-![Jest Suite](images/jest-tests.png)
+```bash
+ZRANGE delayed_jobs 0 -1 WITHSCORES
+```
+
+![Delayed Queue](assets/redis-delayed-queue.png)
+
+#### Dead Letter Queue
+
+```bash
+LRANGE failed_jobs 0 -1
+```
+
+![Dead Letter Queue](assets/redis-dlq.png)
+
+---
+
+### Automated Tests
+
+![Jest Test Suite](assets/jest-tests.png)
 
 ---
 
