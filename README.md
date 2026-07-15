@@ -98,28 +98,48 @@ Each queue uses the Redis structure that matches how it's read: the main queue o
 
 ```text
 JobForge/
+├── assets/
+│   ├── project-structure.png
+│   ├── running-services.png
+│   ├── create-job.png
+│   ├── list-jobs.png
+│   ├── failed-jobs.png
+│   ├── redis-main-queue.png
+│   ├── redis-delayed-queue.png
+│   ├── redis-dlq.png
+│   └── jest-tests.png
+│
 ├── docs/
 │   └── decisions.md
+│
 ├── src/
 │   ├── controllers/
 │   │   ├── jobs.memory.controller.js
 │   │   └── jobs.redis.controller.js
+│   │
 │   ├── queue/
 │   │   └── queue.js
+│   │
 │   ├── redis/
 │   │   └── redis.js
+│   │
 │   ├── routes/
 │   │   └── jobs.routes.js
+│   │
 │   ├── workers/
 │   │   ├── worker.js
 │   │   └── scheduler.js
+│   │
 │   ├── app.js
 │   └── server.js
+│
 ├── tests/
 │   └── jobs.test.js
+│
+├── .gitignore
 ├── package.json
-├── README.md
-└── .gitignore
+├── package-lock.json
+└── README.md
 ```
 
 `jobs.memory.controller.js` is the original in-memory implementation from the first build pass, kept for comparison rather than deleted.
