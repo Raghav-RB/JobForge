@@ -38,6 +38,36 @@ async function getFailedJobs(req, res) {
     res.status(200).json(parsedJobs);
 }
 
+async function replayFailedJob(req, res) {
+
+    const jobId = Number(req.params.id);
+
+    const failedJobs = await redisClient.lrange("failed_jobs", 0, -1);
+
+    const jobString = failedJobs.find((job) => {
+        return JSON.parse(job).id === jobId;
+    });
+
+    if (!jobString) {
+        return res.status(404).json({
+            message: "Job not found in Dead Letter Queue",
+        });
+    }
+
+    const job = JSON.parse(jobString);
+
+    job.retries = 0;
+
+    await redisClient.lrem("failed_jobs", 1, jobString);
+
+    await redisClient.rpush("jobs", JSON.stringify(job));
+
+    res.status(200).json({
+        message: "Job replayed successfully",
+        job,
+    });
+}
+
 async function createJobSync(req, res) {
     await delay(5000);
 
@@ -50,5 +80,6 @@ module.exports = {
     createJob,
     getJobs,
     getFailedJobs,
+    replayFailedJob,
     createJobSync,
 };

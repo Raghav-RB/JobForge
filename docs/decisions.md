@@ -410,7 +410,7 @@ Accept this limitation for now.
 
 ### Reason
 
-Today's objective is to understand why a Dead Letter Queue exists. Manual replay and deletion require additional queue management operations and are intentionally left out to keep the project focused.
+TToday's objective is to understand why a Dead Letter Queue exists. Replay functionality is intentionally deferred to a later stage so the core DLQ concept can be understood before adding recovery operations.
 
 # Day 6 – Delayed Jobs and Idempotency
 
@@ -532,7 +532,7 @@ Do not implement simplified idempotency.
 
 ### Reason
 
-Understanding the trade-offs is more valuable than adding an implementation that is known to be unsafe. Production systems usually implement idempotency together with business-level guarantees, acknowledgements, or transactional storage.
+Understanding the trade-offs is more valuable than adding an implementation that is known to be unsafe. Production systems typically reduce or eliminate this failure window using techniques such as transactional outbox patterns, downstream idempotency keys, delivery acknowledgements, or broker-managed message visibility. These approaches require infrastructure beyond the scope of this learning project.
 
 # Day 7 – Automated Testing with Jest & Supertest
 
@@ -612,6 +612,76 @@ Creating failed jobs naturally requires worker execution and retry exhaustion, w
 
 ---
 
+# Day 8 – Replaying Failed Jobs
+
+## Problem
+
+Jobs that exceed the maximum retry limit are moved to the Dead Letter Queue (DLQ). While this prevents endless retry loops, those jobs remain permanently unprocessed even after the original failure has been resolved.
+
+Without a replay mechanism, the only recovery option is manually creating a new job again.
+
+---
+
+## Decision
+
+Implemented a replay endpoint:
+
+POST /failed_jobs/:id/replay
+
+The endpoint performs the following operations:
+
+1. Reads all jobs from the Dead Letter Queue.
+2. Finds the requested job using its ID.
+3. Removes the job from the Dead Letter Queue.
+4. Resets its retry counter to 0.
+5. Pushes the job back into the main jobs queue.
+
+The worker treats the replayed job exactly like a newly created job.
+
+---
+
+## Why this approach?
+
+The Dead Letter Queue is expected to contain relatively few jobs compared to the main queue.
+
+Because Redis Lists do not support direct lookup by ID, scanning the DLQ using `LRANGE` before replaying a job is an acceptable trade-off while keeping the implementation simple.
+
+This endpoint models a common operational workflow where failed jobs are replayed only after the underlying issue has been resolved.
+
+---
+
+## Alternatives Considered
+
+### Replay all failed jobs
+
+Rejected.
+
+Replaying every failed job at once could unnecessarily retry jobs whose failures have not yet been resolved.
+
+### Leave failed jobs permanently in the DLQ
+
+Rejected.
+
+Operators should have a simple recovery mechanism instead of manually recreating jobs.
+
+---
+
+## Consequences
+
+### Advantages
+
+- Failed jobs can be recovered.
+- Original job metadata is preserved.
+- Retry count starts fresh.
+- Worker logic remains unchanged.
+- Simple operational workflow.
+
+### Trade-offs
+
+- Requires manual replay.
+- Linear search through the Dead Letter Queue.
+- No bulk replay support.
+
 ## Outcome
 
 Added automated integration tests covering:
@@ -620,5 +690,14 @@ Added automated integration tests covering:
 - POST /jobs
 - GET /jobs
 - GET /failed-jobs
+- POST/failed_jobs/:id/replay
 
 The project now includes automated verification of its primary REST APIs.
+
+## Why Worker Logic Was Left Unchanged
+
+The replay endpoint simply places the selected job back into the main Redis queue after resetting its retry count.
+
+Because replayed jobs follow exactly the same execution path as newly created jobs, the worker requires no additional replay-specific logic.
+
+Keeping the worker unaware of replay operations preserves the separation of responsibilities and keeps job processing independent of how jobs entered the queue.

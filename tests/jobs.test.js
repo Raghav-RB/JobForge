@@ -71,3 +71,42 @@ test("GET /failed_jobs should return failed jobs", async () => {
     expect(response.body[0].title).toBe("Failed Job");
     expect(response.body[0].retries).toBe(3);
 });
+
+test("POST /failed_jobs/:id/replay should replay a failed job", async () => {
+
+    const failedJob = {
+        id: 1,
+        title: "Replay Job",
+        retries: 3,
+        createdAt: new Date().toISOString(),
+    };
+
+    await redis.rpush(
+        "failed_jobs",
+        JSON.stringify(failedJob)
+    );
+
+    const response = await request(app)
+        .post("/failed_jobs/1/replay");
+
+    expect(response.statusCode).toBe(200);
+
+    expect(response.body.message).toBe("Job replayed successfully");
+
+    expect(response.body.job.retries).toBe(0);
+
+    const jobs = await redis.lrange("jobs", 0, -1);
+
+    expect(jobs.length).toBe(1);
+
+    const replayedJob = JSON.parse(jobs[0]);
+
+    expect(replayedJob.id).toBe(1);
+    expect(replayedJob.title).toBe("Replay Job");
+    expect(replayedJob.retries).toBe(0);
+
+    const failedJobs = await redis.lrange("failed_jobs", 0, -1);
+
+    expect(failedJobs.length).toBe(0);
+
+});

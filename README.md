@@ -31,6 +31,7 @@ The project was built incrementally rather than assembled from a finished design
 - Automatic retries with a configurable limit
 - Delayed retry scheduling via a dedicated scheduler process
 - Dead Letter Queue for permanently failed jobs
+- Manual replay of failed jobs from the Dead Letter Queue
 - Multiple concurrent workers, verified to process without duplication
 - Jest + Supertest integration test suite
 - Dockerized Redis environment
@@ -41,7 +42,7 @@ The project was built incrementally rather than assembled from a finished design
 ## Architecture
 
 ```text
-                         Client
+                          Client
                             │
                             ▼
                  Express REST API (Producer)
@@ -64,21 +65,25 @@ The project was built incrementally rather than assembled from a finished design
                                         │
                                         ▼
                          Retries remaining?
-                      │                    │
-                     yes                   no
-                      │                    │
-                      ▼                    ▼
-             Delayed Queue          Dead Letter Queue
-             (Sorted Set)                (List)
-                      │
-                      ▼
-                 Scheduler
-            (polls ZRANGEBYSCORE)
+                      ┌───────┴────────┐
+                      │                │
+                     Yes               No
+                      │                │
+                      ▼                ▼
+             Delayed Queue      Dead Letter Queue
+             (Sorted Set)            (List)
+                      │                │
+                      ▼                ▼
+                 Scheduler      Replay Endpoint
+                      │                │
+                      └────────┬───────┘
+                               ▼
+                      Redis Main Queue
 ```
 
-The scheduler moves due jobs from the Delayed Queue back into the Redis Main Queue once their retry timestamp has passed, and they re-enter the worker pool through the same path as any new job.
+The scheduler moves jobs whose retry delay has expired from the Delayed Queue back into the Redis Main Queue. Similarly, operators can replay failed jobs from the Dead Letter Queue through a dedicated replay endpoint. Both paths converge into the same main queue, allowing workers to process replayed, delayed, and newly created jobs through a single execution flow.
 
-Producer and consumer never call each other directly. The API only validates input and pushes a job onto the queue; a worker only pulls jobs and processes them. API, workers, and scheduler each run as their own process, communicating solely through Redis.
+Producer and consumer never call each other directly. The API only validates input and enqueues jobs, while workers consume and process them independently. The scheduler manages delayed retries, and the replay endpoint provides a controlled recovery path for permanently failed jobs. All communication happens through Redis.
 
 ---
 
@@ -88,9 +93,9 @@ Producer and consumer never call each other directly. The API only validates inp
 |-------|-----------------|----------|---------|
 | Main Queue | List | `RPUSH`, `BRPOP`, `LLEN` | FIFO intake; workers block on this until a job arrives |
 | Delayed Queue | Sorted Set | `ZADD`, `ZRANGEBYSCORE`, `ZREM` | Holds retries, scored by the timestamp they become due |
-| Dead Letter Queue | List | `RPUSH`, `LRANGE` | Stores jobs that exhausted their retry limit |
+| Dead Letter Queue | List | `RPUSH`, `LRANGE`, `LREM` | Stores permanently failed jobs and supports manual replay |
 
-Each queue uses the Redis structure that matches how it's read: the main queue only needs ordered push/pop, the delayed queue needs range queries by time, and the dead letter queue only needs to be listed.
+Each queue uses the Redis data structure best suited to its access pattern. Lists provide efficient FIFO operations for the main queue and the Dead Letter Queue, while Sorted Sets allow delayed jobs to be ordered and retrieved by their scheduled execution time.
 
 ---
 
@@ -104,6 +109,9 @@ JobForge/
 │   ├── create-job.png
 │   ├── list-jobs.png
 │   ├── failed-jobs.png
+│   ├── replay-endpoint.png
+│   ├── replay-worker.png
+│   ├── replay-redis-cli.png
 │   ├── redis-main-queue.png
 │   ├── redis-delayed-queue.png
 │   ├── redis-dlq.png
@@ -212,12 +220,13 @@ http://localhost:3000
 
 ## API Reference
 
-| Method | Endpoint     | Description                                                | Success |
-| ------ | ------------ | ---------------                                            | ------- |
-| POST   | /jobs        | Create a background job                                    | 201     |
-| GET    | /jobs        | List jobs waiting in the main queue                        | 200     |
-| GET    | /failed_jobs | List jobs in the Dead Letter Queue                         | 200     |
-| POST   | /jobs_sync   | Processes synchronously, for comparison against `/jobs`    | 200     |
+| Method | Endpoint                | Description                                                | Success |
+| ------ | ------------            | ---------------                                            | ------- |
+| POST   | /jobs                   | Create a background job                                    | 201     |
+| GET    | /jobs                   | List jobs waiting in the main queue                        | 200     |
+| GET    | /failed_jobs            | List jobs in the Dead Letter Queue                         | 200     |
+| POST   | /jobs-sync              | Processes synchronously, for comparison against `/jobs`    | 200     |
+| POST   | /failed_jobs/:id/replay | Replay a failed job from the Dead Letter Queue             | 200     |
 
 
 ### Example: `POST /jobs`
@@ -291,6 +300,7 @@ Covered:
 - `POST /jobs`
 - `GET /jobs`
 - `GET /failed_jobs`
+- `POST /failed_jobs/:id/replay`
 
 Each test starts from `beforeEach()`, which clears all Redis queues first, so tests don't depend on execution order or state left over from a previous run.
 
@@ -319,6 +329,28 @@ npm test
 ### Dead Letter Queue
 
 ![Failed Jobs](assets/failed-jobs.png)
+
+### Replay Failed Job
+
+After resolving the underlying cause of a failure (such as a temporary service outage), an operator can replay an individual job from the Dead Letter Queue instead of recreating it manually.
+
+<p align="center">
+  <img src="assets/replay-endpoint.png" width="900">
+</p>
+
+The replay endpoint removes the job from the Dead Letter Queue, resets its retry counter, and places it back into the main queue for normal processing.
+
+<p align="center">
+  <img src="assets/replay-worker.png" width="900">
+</p>
+
+The replayed job re-enters the main queue and follows the same processing path as every newly created job. No changes to the worker logic are required because replay simply places the job back into the queue.
+
+<p align="center">
+  <img src="assets/replay-redis-cli.png" width="900">
+</p>
+
+The Redis CLI shows the job stored in the Dead Letter Queue before replay, allowing operators to inspect failed jobs prior to resubmitting them for processing.
 
 ---
 
@@ -390,6 +422,14 @@ Retrying a failed job immediately tends to hit the same failure again right away
 
 Rather than having workers sleep and wait for a retry timer, a separate scheduler process polls the delayed queue and moves due jobs back to the main queue. Workers stay simple — always processing, never waiting — and scheduling becomes its own isolated responsibility.
 
+### Manual Replay from the Dead Letter Queue
+
+Dead-lettered jobs are intentionally replayed through a dedicated API rather than automatically retried forever.
+
+The replay endpoint removes the selected job from the Dead Letter Queue, resets its retry counter, and pushes it back into the main queue. Because replayed jobs follow the same execution path as newly created jobs, no additional worker logic is required.
+
+Keeping replay as a manual operation gives operators control over when failed jobs should be retried, typically after the underlying issue has been resolved.
+
 ### Integration tests over isolated unit tests
 
 Tests run the full request → controller → Redis → response path instead of mocking Redis out. A mocked Redis client can't confirm that the `BRPOP` logic, or the sorted-set scheduling, actually behaves correctly against real Redis.
@@ -419,10 +459,28 @@ These are qualitative observations from manual testing, not a formal load test:
 | Fixed-delay retries | Configurable policies, exponential backoff |
 | Polling scheduler | Event-driven scheduling |
 | No delivery acknowledgements | Acknowledgements / visibility timeouts |
-| Simple Dead Letter Queue | Managed DLQs with alerting |
+| Manual Dead Letter Queue Replay | Managed DLQs with alerting |
 | Learning-focused | Built for high availability |
 
 JobForge trades production completeness for clarity on purpose — understanding these gaps was as much the point as building the queue itself.
+
+---
+
+## Idempotency
+
+JobForge intentionally does **not** implement a naive Redis-only idempotency mechanism.
+
+A common approach is to store an idempotency key before or after processing a job. While this appears to prevent duplicate execution, it still leaves an unavoidable failure window.
+
+If a worker records completion before performing the actual work, a crash may permanently mark a job as processed even though the work never happened. If the work completes first but the worker crashes before recording completion, replaying the job may execute it again.
+
+This is known as the **dual-write problem**. The business operation and the Redis state update occur in two independent systems and cannot be committed atomically.
+
+Redis transactions (`MULTI/EXEC`) and Lua scripts only provide atomicity for Redis operations. They cannot include external side effects such as sending an email or calling a third-party API.
+
+Production systems typically reduce or eliminate this risk using techniques such as delivery acknowledgements, transactional outbox patterns, or downstream systems that support idempotency keys.
+
+Rather than presenting an incomplete solution as correct, JobForge documents this limitation and focuses on reliable retries, delayed scheduling, Dead Letter Queues, and manual replay.
 
 ---
 
@@ -436,7 +494,7 @@ JobForge trades production completeness for clarity on purpose — understanding
 | Worker health | No heartbeat | Heartbeat + stale job detection |
 | Locking | None | Distributed locking, to run multiple schedulers safely |
 | Ordering | FIFO only | Priority queues |
-| Failed jobs | Inspectable, not replayable | Replay endpoint |
+| Failed jobs | Manual replay supported | Bulk replay and replay filtering |
 | Job control | No cancellation once queued | Job cancellation |
 | Observability | Logs only | Metrics dashboard (Prometheus/Grafana) |
 | Security | No authentication | Authentication & authorization |
@@ -453,7 +511,7 @@ JobForge trades production completeness for clarity on purpose — understanding
 
 **Redis specifics** — Why a List for the main queue but a Sorted Set for delayed jobs? What does the ZSET score represent here? Which commands does the system depend on, and why those?
 
-**Distributed systems** — What happens if a worker crashes mid-job? What happens if the scheduler crashes? What is idempotency, and why does at-least-once delivery need it? Why are acknowledgements useful, and why doesn't this system have them yet?
+**Distributed systems** — What happens if a worker crashes mid-job? What happens if the scheduler crashes? Why is idempotency difficult to implement correctly? What is the dual-write problem? Why don't Redis transactions solve it? Why are acknowledgements useful, and why doesn't this system implement them?
 
 **Testing** — Why integration tests over unit tests here? Why Supertest? Why clear Redis before every test?
 
